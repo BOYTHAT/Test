@@ -1,0 +1,175 @@
+#include <Wire.h>
+#include <Nextion.h>
+#include "NexText.h"
+#include "NexNumber.h"
+
+NexNumber nUltra = NexNumber(3, 4, "n0");
+NexNumber nLDR = NexNumber(3, 5, "n1");
+NexNumber nTemp = NexNumber(3, 6, "n2");
+NexNumber nHumi = NexNumber(3, 7, "n3");
+NexProgressBar pBar = NexProgressBar(0, 1, "j0");
+NexProgressBar pBar1 = NexProgressBar(0, 1, "j1");
+NexText nTempText = NexText(0, 5, "t10");
+NexText nHumiText = NexText(0, 6, "t11");
+
+int switch_pos = 0;
+// byte received_data[4];
+int pushButtonState = HIGH;
+bool slave2DataValid = false;
+bool slave1DataValid = false;
+uint16_t ultrasonicValue = 0, ldrValue = 0;
+uint8_t extraData1 = 0;
+float temperature = 0.0, humidity = 0.0;
+const int pushButtonPin = 7;
+const int slaveAddresses[2] = { 8, 9 };
+
+unsigned long lastButtonCheckTime = 0;
+unsigned long lastSensorUpdateTime = 0;
+unsigned long lastNextionUpdateTime = 0;
+const unsigned long buttonCheckInterval = 10;
+const unsigned long sensorUpdateInterval = 1000;
+const unsigned long nextionUpdateInterval = 2000;
+
+// NexTouch *nex_listen_list[] = {
+//   NULL
+// };
+
+void setup() {
+  Serial.begin(9600);
+  Wire.begin();
+  nexInit();
+  // pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(pushButtonPin, INPUT_PULLUP);
+  pinMode(13, OUTPUT);  // Set pin 13 for LED control
+  // pBar.setValue(0);
+  // pBar1.setValue(0);
+}
+
+void loop() {
+  unsigned long currentTime = millis();
+
+
+
+
+  // Handle sensor data updates
+  if (currentTime - lastSensorUpdateTime >= sensorUpdateInterval) {
+    updateSensorData();
+    if (Serial.available()) {
+      String data_from_display = "";
+      delay(30);
+      while (Serial.available()) {
+        data_from_display += char(Serial.read());
+      }
+      if (data_from_display == "S1") {
+        nTempText.setText(String(temperature, 1).c_str());  // Display temperature
+        nHumiText.setText(String(humidity, 1).c_str());     // Display humidity
+        // digitalWrite(13, HIGH);
+      }
+      if (data_from_display == "S2") {
+        // nUltra.setValue(ultrasonicValue);
+        // nLDR.setValue(ldrValue);
+        // digitalWrite(13, LOW);
+      };  // Call the function to process the received data
+    }
+    lastSensorUpdateTime = currentTime;
+  }
+
+  // Display data on Nextion if valid
+  // if (slave1DataValid) {
+  //   pBar1.setValue(100);
+  //   // S2ToNextion();
+  // } else {
+  //   pBar1.setValue(0);
+  // }
+
+  // if (slave2DataValid) {
+  //   pBar.setValue(100);
+  //   // S1ToNextion();
+  // } else {
+  //   pBar.setValue(0);
+  //   // nUltra.setValue(0);
+  //   // nLDR.setValue(0);
+  // }
+
+  // Handle push button state
+  if (currentTime - lastButtonCheckTime >= buttonCheckInterval) {
+    // handleButtonAndSwitch();
+    lastButtonCheckTime = currentTime;
+  }
+
+  // Handle serial communication with Nextion display
+
+
+  // nexLoop(nex_listen_list);
+}
+// void senData(String data_from_display) {
+//   if (data_from_display == "S1") {
+//     nTempText.setText(String(temperature, 1).c_str());  // Display temperature
+//     nHumiText.setText(String(humidity, 1).c_str());     // Display humidity
+//     // digitalWrite(13, HIGH);
+//   }
+//   if (data_from_display == "S2") {
+//     // nUltra.setValue(ultrasonicValue);
+//     // nLDR.setValue(ldrValue);
+//     // digitalWrite(13, LOW);
+//   }
+// }
+
+void handleButtonAndSwitch() {
+  int currentButtonState = digitalRead(pushButtonPin);
+  currentButtonState = (currentButtonState == LOW) ? 1 : 0;
+
+  if (currentButtonState) {
+    // digitalWrite(LED_BUILTIN, HIGH);
+    sendValueToSlave(slaveAddresses[0], currentButtonState);
+  } else {
+    switch_pos = 0;
+    // digitalWrite(LED_BUILTIN, LOW);
+    sendValueToSlave(slaveAddresses[0], switch_pos);
+  }
+}
+
+void updateSensorData() {
+  requestValuesFromSlave1(slaveAddresses[0], ultrasonicValue, ldrValue, extraData1);
+  requestValuesFromSlave2(slaveAddresses[1], temperature, humidity, extraData1);
+}
+
+// void S1ToNextion() {
+//   nTempText.setText(String(temperature, 1).c_str());  // Display temperature
+//   nHumiText.setText(String(humidity, 1).c_str());     // Display humidity
+// }
+
+// void S2ToNextion() {
+//   nUltra.setValue(ultrasonicValue);
+//   nLDR.setValue(ldrValue);
+// }
+
+void sendValueToSlave(int slaveAddress, uint16_t value) {
+  Wire.beginTransmission(slaveAddress);
+  Wire.write((byte)(value >> 8));
+  Wire.write((byte)value);
+  Wire.endTransmission();
+}
+
+void requestValuesFromSlave1(int slaveAddress, uint16_t &ultrasonicValue, uint16_t &ldrValue, uint8_t &extraData) {
+  Wire.requestFrom(slaveAddress, 5);
+  if (Wire.available() >= 5) {
+    ultrasonicValue = (Wire.read() << 8) | Wire.read();
+    ldrValue = (Wire.read() << 8) | Wire.read();
+    extraData = Wire.read();
+    slave1DataValid = true;
+  } else {
+    slave1DataValid = false;
+  }
+}
+
+void requestValuesFromSlave2(int slaveAddress, float &temperature, float &humidity, uint8_t &extraData) {
+  Wire.requestFrom(slaveAddress, sizeof(float) * 2);
+  if (Wire.available() == sizeof(float) * 2) {
+    Wire.readBytes((char *)&temperature, sizeof(float));
+    Wire.readBytes((char *)&humidity, sizeof(float));
+    slave2DataValid = true;
+  } else {
+    slave2DataValid = false;
+  }
+}
